@@ -45,17 +45,19 @@ fn bench_search_average<F>(b: &mut test::Bencher, f: F)
     b.bytes = len as u64;
     b.iter(|| {
         for hay in haystack.iter() {
-            let value = *words.get(&**hay).unwrap();
-            assert_eq!(value, (f)(hay));
+            let expected = *words.get(&**hay).unwrap();
+            let result = (f)(hay);
+            assert_eq!(expected, result);
+            test::black_box(result);
         }
 
-        assert_eq!(
-            search::HAYSTACK.len(),
-            (f)(search::MISSING_FIRST));
+        let result = (f)(search::MISSING_FIRST);
+        assert_eq!(search::HAYSTACK.len(), result);
+        test::black_box(result);
 
-        assert_eq!(
-            search::HAYSTACK.len(),
-            (f)(search::MISSING_LAST));
+        let result = (f)(search::MISSING_FIRST);
+        assert_eq!(search::HAYSTACK.len(), result);
+        test::black_box(result);
     })
 }
 
@@ -66,7 +68,9 @@ fn bench_search_one<F>(b: &mut test::Bencher, needle: &str, index: usize, f: F)
     b.bytes = len as u64;
     b.iter(|| {
         for _ in haystack.iter() {
-            assert_eq!(index, (f)(needle));
+            let result = (f)(needle);
+            assert_eq!(index, result);
+            test::black_box(result);
         }
     })
 }

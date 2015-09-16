@@ -21,12 +21,14 @@ def generate_header(haystack, hay_map):
     pub static MISSING_FIRST: &'static str = "%s";
     pub static MISSING_LAST: &'static str = "%s";
 
+    #[inline]
     unsafe fn slice_from_unchecked(slice: &[u8], pos: usize) -> &[u8] {
         let ptr = slice.as_ptr();
         let len = slice.len();
         slice::from_raw_parts(ptr.offset(pos as isize), len - pos)
     }
 
+    #[inline]
     unsafe fn split_at_unchecked(slice: &[u8], pos: usize) -> (&[u8], &[u8]) {
         let ptr = slice.as_ptr();
         let len = slice.len();
@@ -45,8 +47,7 @@ def generate_header(haystack, hay_map):
 
 def generate_match(haystack, hay_map):
     print textwrap.dedent("""
-    #[no_mangle]
-    #[inline(never)]
+    #[inline]
     pub fn match_search(needle: &str) -> usize {
         match needle {""")
 
@@ -61,8 +62,7 @@ def generate_match(haystack, hay_map):
 
 def generate_linear(haystack, hay_map):
     print textwrap.dedent("""
-    //#[no_mangle]
-    #[inline(never)]
+    #[inline]
     pub fn linear_search(needle: &str) -> usize {""")
 
     first = True
@@ -113,8 +113,7 @@ def generate_binary(haystack, hay_map):
     haystack = sorted(haystack)
 
     print textwrap.dedent("""
-    //#[no_mangle]
-    #[inline(never)]
+    #[inline]
     pub fn binary_search(needle: &str) -> usize {""")
     print walk_binary(haystack, hay_map, 'str::cmp', 0, len(haystack), 4)
     print '    %s' % len(haystack)
@@ -181,34 +180,54 @@ class TrieNode(object):
                     '%s    let (prefix, needle) = unsafe { split_at_unchecked(needle, %s) };' % (spaces, length)
                 )
 
-            lines.append(
-                '%s    match prefix {' % (spaces,)
-            )
+            if length == 1:
+                lines.append(
+                    '%s    match prefix {' % (spaces,)
+                )
 
-            for key, child in sorted(self.children.iteritems()):
-                s = [spaces + '        ']
+                for key, child in sorted(self.children.iteritems()):
+                    assert len(key) == 1
 
-                if len(key) == 1:
+                    s = [spaces + '        ']
+
                     s.append("b'%s'" % key)
-                else:
-                    s.append('b"%s"' % key)
+                    s.append(' => {')
 
-                s.append(' => {')
+                    lines.append(''.join(s))
 
-                lines.append(''.join(s))
+                    if child.value is not None:
+                        lines.append('%s            if needle.is_empty() { return %s; }' % (spaces, child.value))
+
+                        if child.children:
+                            lines.append(child.walk(depth + 12))
+                    else:
+                        lines.append(child.walk(depth + 12))
+
+                    lines.append('%s        }' % (spaces,))
+
+                lines.append('%s        _ => { }' % (spaces,))
+                lines.append('%s    }' % (spaces,))
+            else:
+                assert len(self.children) == 1
+
+                key, child = next(self.children.iteritems())
+
+                lines.append(
+                    '%s    if prefix == b"%s" {' % (spaces, key)
+                )
 
                 if child.value is not None:
-                    lines.append('%s            if needle.is_empty() { return %s; }' % (spaces, child.value))
+                    lines.append('%s        if needle.is_empty() { return %s; }' % (spaces, child.value))
 
                     if child.children:
-                        lines.append(child.walk(depth + 12))
+                        lines.append(child.walk(depth + 8))
                 else:
-                    lines.append(child.walk(depth + 12))
+                    lines.append(child.walk(depth + 8))
 
-                lines.append('%s        }' % (spaces,))
+                lines.append(
+                    '%s    }' % (spaces,)
+                )
 
-            lines.append('%s        _ => { }' % (spaces,))
-            lines.append('%s    }' % (spaces,))
             lines.append('%s}' % (spaces,))
         elif length == 1:
             # we could have multiple children
@@ -228,14 +247,11 @@ class TrieNode(object):
             for key, child in sorted(self.children.iteritems()):
                 assert not child.children
                 assert child.value is not None
+                assert len(key) == 1
 
                 s = [spaces + '        ']
 
-                if len(key) == 1:
-                    s.append("b'%s'" % key)
-                else:
-                    s.append('b"%s"' % key)
-
+                s.append("b'%s'" % key)
                 s.append(' => { return %s; }' % (child.value,))
                 lines.append(''.join(s))
 
@@ -296,7 +312,7 @@ def generate_trie(haystack, hay_map):
     trie.compress()
 
     print textwrap.dedent("""
-    #[inline(never)]
+    #[inline]
     pub fn trie_search(needle: &str) -> usize {
         let needle = needle.as_bytes();
     """)
