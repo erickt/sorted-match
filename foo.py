@@ -5,29 +5,29 @@ haystack = ['prefix' + c for c in [
     'a',
     'b',
     'c',
-    'd',
-    'e',
-    'f',
-    'g',
-    'h',
-    'i',
-    'j',
-    'k',
-    'l',
-    'm',
-    'n',
-    'o',
-    'p',
-    'q',
-    'r',
-    's',
-    't',
-    'u',
-    'v',
-    'w',
-    'x',
-    'y',
-    'z',
+#    'd',
+#    'e',
+#    'f',
+#    'g',
+#    'h',
+#    'i',
+#    'j',
+#    'k',
+#    'l',
+#    'm',
+#    'n',
+#    'o',
+#    'p',
+#    'q',
+#    'r',
+#    's',
+#    't',
+#    'u',
+#    'v',
+#    'w',
+#    'x',
+#    'y',
+#    'z',
 ]]
 
 print """\
@@ -195,8 +195,8 @@ print """\
 pub fn binary_std_search(needle: &str) -> usize {"""
 print walk('str::cmp', 0, len(haystack), 4)
 print """\
-    26
-}"""
+    %s
+}""" % len(haystack)
 
 print """\
 //#[no_mangle]
@@ -204,5 +204,5 @@ print """\
 pub fn binary_memcmp_search(needle: &str) -> usize {"""
 print walk('cmp_slice', 0, len(haystack), 4)
 print """\
-    26
-}"""
+    %s
+}""" % len(haystack)
