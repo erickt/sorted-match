@@ -44,6 +44,8 @@ for i, c in enumerate(itertools.cycle(haystack_template)):
   prefix = prefixes[i % len(prefixes)]
   haystack.append(prefix + c)
 
+haystack.sort()
+
 def generate_header():
   print textwrap.dedent("""
   use std::cmp::Ordering;
