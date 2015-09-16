@@ -1,0 +1,7 @@
+[package]
+name = "sorted_match"
+version = "0.1.0"
+authors = ["Erick Tryzelaar <erick.tryzelaar@gmail.com>"]
+
+[dependencies]
+search = { path = "search" }
