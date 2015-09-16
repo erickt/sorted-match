@@ -4,165 +4,24 @@ import pprint
 import sys
 import textwrap
 
-#prefixes = sys.argv[1].split(',')
-#count = int(sys.argv[2])
+def generate_header(haystack, hay_map):
+    missing = haystack[-1]
+    while missing in hay_map:
+        missing += 'Z'
 
-#haystack_template = list(
-#        'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-#        'abcdefghijklmnopqrstuvwxyz')
-
-#haystack_template = [
-#    "self",
-#    "static",
-#    "super",
-#    "tt",
-#    "matchers",
-#    "__rust_abi",
-#    "<opaque>",
-#    "<unnamed_field>",
-#    "Self",
-#    "prelude_import",
-#    "as",
-#    "break",
-#    "crate",
-#    "else",
-#    "enum",
-#    "extern",
-#    "false",
-#    "fn",
-#    "for",
-#    "if",
-#    "impl",
-#    "in",
-#    "let",
-#    "loop",
-#    "match",
-#    "mod",
-#    "move",
-#    "mut",
-#    "pub",
-#    "ref",
-#    "return",
-#    "struct",
-#    "true",
-#    "trait",
-#    "type",
-#    "unsafe",
-#    "use",
-#    "virtual",
-#    "while",
-#    "continue",
-#    "box",
-#    "const",
-#    "where",
-#    "proc",
-#    "alignof",
-#    "become",
-#    "offsetof",
-#    "priv",
-#    "pure",
-#    "sizeof",
-#    "typeof",
-#    "unsized",
-#    "yield",
-#    "do",
-#    "abstract",
-#    "final",
-#    "override",
-#    "macro",
-#]
-
-haystack_template = [
-    "pub",
-    "fn",
-    "for",
-    "type",
-    "let",
-    "match",
-    "if",
-    "in",
-    "as",
-    "struct",
-    "return",
-    "use",
-    "trait",
-    "else",
-    "mut",
-    "where",
-    "enum",
-    "const",
-    "ref",
-    "do",
-    "impl",
-    "true",
-    "Self",
-    "self",
-    "while",
-    "unsafe",
-    "yield",
-    "mod",
-    "box",
-    "abstract",
-    "move",
-    "false",
-    "crate",
-    "final",
-    "static",
-    "become",
-    "matchers",
-    "offsetof",
-    "typeof",
-    "break",
-    "alignof",
-    "<opaque>",
-    "override",
-    "priv",
-    "prelude_import",
-    "<unnamed_field>",
-    "tt",
-    "continue",
-    "extern",
-    "macro",
-    "unsized",
-    "pure",
-    "virtual",
-    "super",
-    "loop",
-    "sizeof",
-    "proc",
-    "__rust_abi",
-]
-
-prefixes = ['']
-count = len(haystack_template)
-
-haystack = []
-
-for i, c in enumerate(itertools.cycle(haystack_template)):
-    if i >= count:
-        break
-
-    prefix = prefixes[i % len(prefixes)]
-    haystack.append(prefix + c)
-
-
-sorted_haystack = sorted(haystack)
-hay_map = {}
-
-for i, hay in enumerate(sorted_haystack):
-    hay_map[hay] = i
-
-
-def generate_header():
     print textwrap.dedent("""
     use std::cmp::Ordering;
 
-    pub static HAYSTACK: &'static [&'static str] = &[%s];
-    """ % ','.join('"%s"' % hay for hay in sorted_haystack))
+    pub static HAYSTACK: &'static [(&'static str, usize)] = &[%s];
+    pub static MISSING: &'static str = "%s";
+    """ % (
+        ','.join('("%s", %s)' % (hay, hay_map[hay]) for hay in haystack),
+        missing,
+    ))
 
 # ------------------------------------------------------------------------------
 
-def generate_match():
+def generate_match(haystack, hay_map):
     print textwrap.dedent("""
     #[no_mangle]
     #[inline(never)]
@@ -178,7 +37,7 @@ def generate_match():
 
 # ------------------------------------------------------------------------------
 
-def generate_linear():
+def generate_linear(haystack, hay_map):
     print textwrap.dedent("""
     //#[no_mangle]
     #[inline(never)]
@@ -197,26 +56,26 @@ def generate_linear():
 
 # ------------------------------------------------------------------------------
 
-def walk_binary(fn, start, end, indent=0):
+def walk_binary(haystack, hay_map, fn, start, end, indent=0):
     if start == end:
         return ""
 
     index = (end + start) // 2
     spaces = ' ' * indent
 
-    less = walk_binary(fn, start, index, indent=indent + 8)
+    less = walk_binary(haystack, hay_map, fn, start, index, indent=indent + 8)
     if less:
         less = '{\n%s\n%s}' % (less, spaces + ' ' * 4)
     else:
         less = '{ }'
 
-    greater = walk_binary(fn, index + 1, end, indent=indent + 8)
+    greater = walk_binary(haystack, hay_map, fn, index + 1, end, indent=indent + 8)
     if greater:
         greater = '{\n%s\n%s}' % (greater, spaces + ' ' * 4)
     else:
         greater = '{ }'
 
-    hay = sorted_haystack[index]
+    hay = haystack[index]
 
     lines = [
         'match %s(needle, "%s") {' % (fn, hay),
@@ -228,12 +87,14 @@ def walk_binary(fn, start, end, indent=0):
 
     return '\n'.join('%s%s' % (spaces, line) for line in lines)
 
-def generate_binary():
+def generate_binary(haystack, hay_map):
+    haystack = sorted(haystack)
+
     print textwrap.dedent("""
     //#[no_mangle]
     #[inline(never)]
     pub fn binary_search(needle: &str) -> usize {""")
-    print walk_binary('str::cmp', 0, len(haystack), 4)
+    print walk_binary(haystack, hay_map, 'str::cmp', 0, len(haystack), 4)
     print '    %s' % len(haystack)
     print '}'
 
@@ -358,7 +219,7 @@ class TrieNode(object):
             node.compress(depth + 2)
 
 
-def generate_trie():
+def generate_trie(haystack, hay_map):
     trie = Trie()
 
     for hay in haystack:
@@ -378,12 +239,67 @@ def generate_trie():
 
 # ------------------------------------------------------------------------------
 
+def calculate_frequency(): pass
+
 def main():
-    generate_header()
-    generate_match()
-    generate_linear()
-    generate_binary()
-    generate_trie()
+    parser = optparse.OptionParser()
+    parser.add_option('--sort',
+            action='store_true',
+            default=False,
+            help='sort the keywords')
+    parser.add_option('--sort-by-frequency',
+            action='store',
+            help='sort the keywords by frequency occurring in this file')
+    parser.add_option('--reverse',
+            action='store_true',
+            default=False,
+            help='reverse sort keywords')
+
+    (options, args) = parser.parse_args()
+
+    if len(args) != 1:
+        print 'did not specify haystack'
+        return 1
+
+    haystack_filename = args[0]
+
+    if options.sort and options.sort_by_frequency:
+        print '--sort and --sort-by-frequency are incompatible'
+        return 1
+
+    with open(haystack_filename) as f:
+        haystack = [line for line in f.read().split('\n') if line != '']
+
+    if options.sort:
+        haystack.sort(reverse=options.reverse)
+    elif options.sort_by_frequency:
+        frequency = {}
+        for hay in haystack:
+            frequency[hay] = 0
+
+        with open(options.sort_by_frequency) as f:
+            words = f.read().split(' ')
+
+        for word in words:
+            try:
+                frequency[word] += 1
+            except KeyError:
+                pass
+
+        haystack = [hay for count, hay in
+            sorted(((count, hay) for hay, count in frequency.iteritems()),
+                reverse=not options.reverse)
+        ]
+
+    hay_map = {}
+    for i, hay in enumerate(sorted(haystack)):
+        hay_map[hay] = i
+
+    generate_header(haystack, hay_map)
+    generate_match(haystack, hay_map)
+    generate_linear(haystack, hay_map)
+    generate_binary(haystack, hay_map)
+    generate_trie(haystack, hay_map)
 
 if __name__ == '__main__':
     sys.exit(main())
