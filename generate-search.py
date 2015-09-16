@@ -3,12 +3,70 @@ import pprint
 import sys
 import itertools
 
-prefixes = sys.argv[1].split(',')
-count = int(sys.argv[2])
+#prefixes = sys.argv[1].split(',')
+#count = int(sys.argv[2])
 
-haystack_template = list(
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    'abcdefghijklmnopqrstuvwxyz')
+#haystack_template = list(
+#    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+#    'abcdefghijklmnopqrstuvwxyz')
+
+haystack_template = [
+  "Self",
+  "abstract",
+  "alignof",
+  "as",
+  "become",
+  "box",
+  "break",
+  "const",
+  "continue",
+  "crate",
+  "do",
+  "else",
+  "enum",
+  "extern",
+  "false",
+  "final",
+  "fn",
+  "for",
+  "if",
+  "impl",
+  "in",
+  "let",
+  "loop",
+  "macro",
+  "match",
+  "mod",
+  "move",
+  "mut",
+  "offsetof",
+  "override",
+  "priv",
+  "proc",
+  "pub",
+  "pure",
+  "ref",
+  "return",
+  "self",
+  "sizeof",
+  "static",
+  "struct",
+  "super",
+  "trait",
+  "true",
+  "type",
+  "typeof",
+  "unsafe",
+  "unsized",
+  "use",
+  "virtual",
+  "where",
+  "while",
+  "yield",
+]
+
+prefixes = ['']
+count = len(haystack_template)
 
 haystack = []
 
@@ -169,25 +227,28 @@ class TrieNode(object):
   def walk(self, depth):
     assert self.children
 
+    spaces = ' ' * depth
     length = len(next(self.children.iterkeys()))
 
-    lines = []
+    lines = [
+        '%sif needle.len() >= %s {' % (spaces, length),
+    ]
 
     if length == 1:
-      lines.extend([
-          '%slet (prefix, needle) = (needle[0], &needle[1..]);' % (' ' * depth,),
-      ])
+      lines.append(
+          '%s    let (prefix, needle) = (needle[0], &needle[1..]);' % (spaces,),
+      )
     else:
       lines.append(
-          '%slet (prefix, needle) = needle.split_at(%s);' % (' ' * depth, length)
+          '%s    let (prefix, needle) = needle.split_at(%s);' % (spaces, length)
       )
 
     lines.append(
-        '%smatch prefix {' % (' ' * depth,)
+        '%s    match prefix {' % (spaces,)
     )
 
-    for key, child in self.children.iteritems():
-      s = [' ' * (depth + 4)]
+    for key, child in sorted(self.children.iteritems()):
+      s = [spaces + '        ']
 
       if len(key) == 1:
         s.append("b'%s'" % key)
@@ -199,19 +260,18 @@ class TrieNode(object):
       lines.append(''.join(s))
 
       if child.value is not None:
-        lines.append('%sif needle.is_empty() {' % (' ' * (depth + 8),))
-        lines.append('%sreturn %s;' % (' ' * (depth + 12), child.value))
-        lines.append('%s}' % (' ' * (depth + 8),))
+        lines.append('%s            if needle.is_empty() { return %s; }' % (spaces, child.value))
 
         if child.children:
-          lines.append(child.walk(depth + 8))
+          lines.append(child.walk(depth + 12))
       else:
-        lines.append(child.walk(depth + 8))
+        lines.append(child.walk(depth + 12))
 
-      lines.append('%s}' % (' ' * (depth + 4),))
+      lines.append('%s        }' % (spaces,))
 
-    lines.append('%s_ => { }' % (' ' * (depth + 4),))
-    lines.append('%s}' % (' ' * depth,))
+    lines.append('%s        _ => { }' % (spaces,))
+    lines.append('%s    }' % (spaces,))
+    lines.append('%s}' % (spaces,))
 
     return '\n'.join(lines)
 
@@ -231,11 +291,10 @@ class TrieNode(object):
       node.print_trie(depth + 2)
 
   def compress(self, depth):
-    #print 'compressing:', ' ' * depth, self.key, self.children.keys()
-
-    while len(self.children) == 1:
+    while len(self.children) == 1 and self.value is None:
       key, node = self.children.popitem()
-      if len(node.children) == 1:
+
+      if len(node.children) == 1 and node.value is None:
         for k, n in node.children.iteritems():
           self.children[key + k] = n
       else:
