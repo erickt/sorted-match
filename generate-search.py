@@ -11,22 +11,23 @@ import itertools
 #    'abcdefghijklmnopqrstuvwxyz')
 
 haystack_template = [
+  "self",
+  "static",
+  "super",
+  "tt",
+  "matchers",
+  "__rust_abi",
+  "<opaque>",
+  "<unnamed_field>",
   "Self",
-  "abstract",
-  "alignof",
+  "prelude_import",
   "as",
-  "become",
-  "box",
   "break",
-  "const",
-  "continue",
   "crate",
-  "do",
   "else",
   "enum",
   "extern",
   "false",
-  "final",
   "fn",
   "for",
   "if",
@@ -34,35 +35,40 @@ haystack_template = [
   "in",
   "let",
   "loop",
-  "macro",
   "match",
   "mod",
   "move",
   "mut",
-  "offsetof",
-  "override",
-  "priv",
-  "proc",
   "pub",
-  "pure",
   "ref",
   "return",
-  "self",
-  "sizeof",
-  "static",
   "struct",
-  "super",
-  "trait",
   "true",
+  "trait",
   "type",
-  "typeof",
   "unsafe",
-  "unsized",
   "use",
   "virtual",
-  "where",
   "while",
+  "continue",
+  "box",
+  "const",
+  "where",
+  "proc",
+  "alignof",
+  "become",
+  "offsetof",
+  "priv",
+  "pure",
+  "sizeof",
+  "typeof",
+  "unsized",
   "yield",
+  "do",
+  "abstract",
+  "final",
+  "override",
+  "macro",
 ]
 
 prefixes = ['']
@@ -77,35 +83,20 @@ for i, c in enumerate(itertools.cycle(haystack_template)):
   prefix = prefixes[i % len(prefixes)]
   haystack.append(prefix + c)
 
-haystack.sort()
+
+sorted_haystack = sorted(haystack)
+hay_map = {}
+
+for i, hay in enumerate(sorted_haystack):
+  hay_map[hay] = i
+
 
 def generate_header():
   print textwrap.dedent("""
   use std::cmp::Ordering;
 
   pub static HAYSTACK: &'static [&'static str] = &[%s];
-  """ % ','.join('"%s"' % hay for hay in haystack))
-
-  print textwrap.dedent("""
-
-  #[inline]
-  fn cmp_slice(a: &str, b: &str) -> Ordering {
-      // NOTE: In theory n should be libc::size_t and not usize, but libc is not available here
-      #[allow(improper_ctypes)]
-      extern { fn memcmp(s1: *const i8, s2: *const i8, n: usize) -> i32; }
-      unsafe {
-          let cmp = memcmp(a.as_ptr() as *const i8, b.as_ptr() as *const i8, a.len());
-          if cmp == 0 {
-              a.len().cmp(&b.len())
-          } else if cmp < 0 {
-              Ordering::Less
-          } else {
-              Ordering::Greater
-          }
-
-      }
-  }
-  """)
+  """ % ','.join('"%s"' % hay for hay in sorted_haystack))
 
 # ------------------------------------------------------------------------------
 
@@ -116,10 +107,10 @@ def generate_match():
   pub fn match_search(needle: &str) -> usize {
       match needle {""")
 
-  for i, hay in enumerate(haystack):
-    print '        "%s" => %s,' % (hay, i)
+  for hay in haystack:
+    print '        "%s" => %s,' % (hay, hay_map[hay])
 
-  print '        _ => %s' % (i + 1)
+  print '        _ => %s' % len(haystack)
   print '    }'
   print '}'
 
@@ -132,14 +123,14 @@ def generate_linear():
   pub fn linear_search(needle: &str) -> usize {""")
 
   first = True
-  for i, hay in enumerate(haystack):
+  for hay in haystack:
     if first:
       first = False
-      print '    if needle == "%s" { %s }' % (hay, i)
+      print '    if needle == "%s" { %s }' % (hay, hay_map[hay])
     else:
-      print '    else if needle == "%s" { %s }' % (hay, i)
+      print '    else if needle == "%s" { %s }' % (hay, hay_map[hay])
 
-  print '    else { %s }' % (i + 1)
+  print '    else { %s }' % len(haystack)
   print '}'
 
 # ------------------------------------------------------------------------------
@@ -163,10 +154,12 @@ def walk_binary(fn, start, end, indent=0):
   else:
     greater = '{ }'
 
+  hay = sorted_haystack[index]
+
   lines = [
-    'match %s(needle, "%s") {' % (fn, haystack[index]),
+    'match %s(needle, "%s") {' % (fn, hay),
     '    Ordering::Less => %s' % less,
-    '    Ordering::Equal => { return %s; }' % index,
+    '    Ordering::Equal => { return %s; }' % hay_map[hay],
     '    Ordering::Greater => %s' % greater,
     '}',
   ]
@@ -174,13 +167,11 @@ def walk_binary(fn, start, end, indent=0):
   return '\n'.join('%s%s' % (spaces, line) for line in lines)
 
 def generate_binary():
-  ordering = []
-
   print textwrap.dedent("""
   //#[no_mangle]
   #[inline(never)]
   pub fn binary_search(needle: &str) -> usize {""")
-  print walk_binary('cmp_slice', 0, len(haystack), 4)
+  print walk_binary('str::cmp', 0, len(haystack), 4)
   print '    %s' % len(haystack)
   print '}'
 
@@ -308,8 +299,8 @@ class TrieNode(object):
 def generate_trie():
   trie = Trie()
 
-  for i, hay in enumerate(haystack):
-    trie.insert(hay, i)
+  for hay in haystack:
+    trie.insert(hay, hay_map[hay])
 
   trie.compress()
 
