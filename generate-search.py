@@ -1,3 +1,4 @@
+import collections
 import itertools
 import optparse
 import pprint
@@ -142,7 +143,7 @@ class Trie(object):
 class TrieNode(object):
     def __init__(self):
         self.value = None
-        self.children = {}
+        self.children = collections.OrderedDict()
 
     def insert(self, chars, value):
         assert len(chars) > 0
