@@ -7,7 +7,7 @@ import textwrap
 def generate_header(haystack, hay_map):
     missing_first = haystack[0]
     while missing_first in hay_map:
-        missing_first = '_' + missing_first
+        missing_first = ' ' + missing_first
 
     missing_last = haystack[-1]
     while missing_last in hay_map:
@@ -15,10 +15,26 @@ def generate_header(haystack, hay_map):
 
     print textwrap.dedent("""
     use std::cmp::Ordering;
+    use std::slice;
 
     pub static HAYSTACK: &'static [(&'static str, usize)] = &[%s];
     pub static MISSING_FIRST: &'static str = "%s";
     pub static MISSING_LAST: &'static str = "%s";
+
+    unsafe fn slice_from_unchecked(slice: &[u8], pos: usize) -> &[u8] {
+        let ptr = slice.as_ptr();
+        let len = slice.len();
+        slice::from_raw_parts(ptr.offset(pos as isize), len - pos)
+    }
+
+    unsafe fn split_at_unchecked(slice: &[u8], pos: usize) -> (&[u8], &[u8]) {
+        let ptr = slice.as_ptr();
+        let len = slice.len();
+        (
+            slice::from_raw_parts(ptr, pos),
+            slice::from_raw_parts(ptr.offset(pos as isize), len - pos),
+        )
+    }
     """ % (
         ','.join('("%s", %s)' % (hay, hay_map[hay]) for hay in haystack),
         missing_first,
@@ -145,53 +161,99 @@ class TrieNode(object):
             node.insert(chars, value)
 
     def walk(self, depth):
-        assert self.children
-
         spaces = ' ' * depth
         length = len(next(self.children.iterkeys()))
+        assert length >= 1
 
-        lines = [
-            '%sif needle.len() >= %s {' % (spaces, length),
-        ]
+        lines = []
 
-        if length == 1:
+        if any(child.children for child in self.children.itervalues()):
             lines.append(
-                '%s    let (prefix, needle) = (needle[0], &needle[1..]);' % (spaces,),
-            )
-        else:
-            lines.append(
-                '%s    let (prefix, needle) = needle.split_at(%s);' % (spaces, length)
+                '%sif needle.len() >= %s {' % (spaces, length),
             )
 
-        lines.append(
-            '%s    match prefix {' % (spaces,)
-        )
-
-        for key, child in sorted(self.children.iteritems()):
-            s = [spaces + '        ']
-
-            if len(key) == 1:
-                s.append("b'%s'" % key)
+            if length == 1:
+                lines.append(
+                    '%s    let (prefix, needle) = unsafe { (*needle.get_unchecked(0), slice_from_unchecked(needle, 1)) };' % (spaces,),
+                )
             else:
-                s.append('b"%s"' % key)
+                lines.append(
+                    '%s    let (prefix, needle) = unsafe { split_at_unchecked(needle, %s) };' % (spaces, length)
+                )
 
-            s.append(' => {')
+            lines.append(
+                '%s    match prefix {' % (spaces,)
+            )
 
-            lines.append(''.join(s))
+            for key, child in sorted(self.children.iteritems()):
+                s = [spaces + '        ']
 
-            if child.value is not None:
-                lines.append('%s            if needle.is_empty() { return %s; }' % (spaces, child.value))
+                if len(key) == 1:
+                    s.append("b'%s'" % key)
+                else:
+                    s.append('b"%s"' % key)
 
-                if child.children:
+                s.append(' => {')
+
+                lines.append(''.join(s))
+
+                if child.value is not None:
+                    lines.append('%s            if needle.is_empty() { return %s; }' % (spaces, child.value))
+
+                    if child.children:
+                        lines.append(child.walk(depth + 12))
+                else:
                     lines.append(child.walk(depth + 12))
-            else:
-                lines.append(child.walk(depth + 12))
 
-            lines.append('%s        }' % (spaces,))
+                lines.append('%s        }' % (spaces,))
 
-        lines.append('%s        _ => { }' % (spaces,))
-        lines.append('%s    }' % (spaces,))
-        lines.append('%s}' % (spaces,))
+            lines.append('%s        _ => { }' % (spaces,))
+            lines.append('%s    }' % (spaces,))
+            lines.append('%s}' % (spaces,))
+        elif length == 1:
+            # we could have multiple children
+            lines.append(
+                '%sif needle.len() == %s {' % (spaces, length),
+            )
+
+            if length == 1:
+                lines.append(
+                    '%s    let needle = unsafe { *needle.get_unchecked(0) };' % (spaces,)
+                )
+
+            lines.append(
+                '%s    match needle {' % (spaces,)
+            )
+
+            for key, child in sorted(self.children.iteritems()):
+                assert not child.children
+                assert child.value is not None
+
+                s = [spaces + '        ']
+
+                if len(key) == 1:
+                    s.append("b'%s'" % key)
+                else:
+                    s.append('b"%s"' % key)
+
+                s.append(' => { return %s; }' % (child.value,))
+                lines.append(''.join(s))
+
+            lines.extend([
+                '%s        _ => { }' % (spaces,),
+                '%s    }' % (spaces,),
+                '%s}' % (spaces,),
+            ])
+        else:
+            assert len(self.children) == 1
+
+            key, child = next(self.children.iteritems())
+            assert child.value is not None
+
+            # we could have multiple children
+            lines.append(
+                '%sif needle == b"%s" { return %s; }' % (spaces, key, child.value)
+            )
 
         return '\n'.join(lines)
 
