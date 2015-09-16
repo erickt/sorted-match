@@ -22,6 +22,7 @@ def generate_header(haystack, hay_map):
     pub static MISSING_FIRST: &'static str = "%s";
     pub static MISSING_LAST: &'static str = "%s";
 
+    #[allow(dead_code)]
     #[inline]
     unsafe fn slice_from_unchecked(slice: &[u8], pos: usize) -> &[u8] {
         let ptr = slice.as_ptr();
@@ -29,6 +30,7 @@ def generate_header(haystack, hay_map):
         slice::from_raw_parts(ptr.offset(pos as isize), len - pos)
     }
 
+    #[allow(dead_code)]
     #[inline]
     unsafe fn split_at_unchecked(slice: &[u8], pos: usize) -> (&[u8], &[u8]) {
         let ptr = slice.as_ptr();
@@ -37,6 +39,21 @@ def generate_header(haystack, hay_map):
             slice::from_raw_parts(ptr, pos),
             slice::from_raw_parts(ptr.offset(pos as isize), len - pos),
         )
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    unsafe fn eq_slice_unchecked(a: &[u8], b: &[u8]) -> bool {
+        cmp_slice(a, b, a.len()) == 0
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    unsafe fn cmp_slice(a: &[u8], b: &[u8], len: usize) -> i32 {
+        // NOTE: In theory n should be libc::size_t and not usize, but libc is not available here
+        #[allow(improper_ctypes)]
+        extern { fn memcmp(s1: *const i8, s2: *const i8, n: usize) -> i32; }
+        memcmp(a.as_ptr() as *const i8, b.as_ptr() as *const i8, len)
     }
     """ % (
         ','.join('("%s", %s)' % (hay, hay_map[hay]) for hay in haystack),
@@ -124,21 +141,55 @@ def generate_binary(haystack, hay_map):
 
 class Trie(object):
     def __init__(self):
-        self.root = TrieNode()
+        self.roots = {}
 
     def insert(self, key, value):
         chars = list(key)
         chars.reverse()
-        self.root.insert(chars, value)
+
+        try:
+            root = self.roots[len(chars)]
+        except KeyError:
+            root = self.roots[len(chars)] = TrieNode()
+
+        root.insert(chars, value)
 
     def walk(self):
-        return self.root.walk(4)
+        lines = []
+        roots = sorted(self.roots.iteritems(), lambda a, b: cmp(a[0], b[0]))
+        assert len(roots) > 0
+
+        if len(roots) > 1:
+            lines.append('    match needle.len() {')
+            for length, root in roots:
+                lines.append('        %s => {' % (length,))
+                lines.append(root.walk(12))
+                lines.append('        }')
+
+            lines.extend([
+                '        _ => { }',
+                '    }',
+            ])
+        else:
+            length, root = roots[0]
+            lines.append('    if needle.len() == %s {' % (length,))
+            lines.append(root.walk(4))
+            lines.append('    }')
+
+        return '\n'.join(lines)
 
     def print_trie(self):
-        self.root.print_trie(0)
+        for i, (length, root) in enumerate(sorted(self.roots.iteritems(), lambda a, b: cmp(a[0], b[0]))):
+            if i == 0:
+                prefix = '+'
+            else:
+                prefix = '|'
+            print '%s%s' % (prefix, length)
+            root.print_trie(2)
 
     def compress(self):
-        self.root.compress(0)
+        for root in self.roots.itervalues():
+            root.compress(0)
 
 class TrieNode(object):
     def __init__(self):
@@ -168,10 +219,6 @@ class TrieNode(object):
         lines = []
 
         if any(child.children for child in self.children.itervalues()):
-            lines.append(
-                '%sif needle.len() >= %s {' % (spaces, length),
-            )
-
             if length == 1:
                 lines.append(
                     '%s    let (prefix, needle) = unsafe { (*needle.get_unchecked(0), slice_from_unchecked(needle, 1)) };' % (spaces,),
@@ -214,7 +261,7 @@ class TrieNode(object):
                 key, child = next(self.children.iteritems())
 
                 lines.append(
-                    '%s    if prefix == b"%s" {' % (spaces, key)
+                    '%s    if unsafe { eq_slice_unchecked(prefix, b"%s") } {' % (spaces, key)
                 )
 
                 if child.value is not None:
@@ -228,14 +275,7 @@ class TrieNode(object):
                 lines.append(
                     '%s    }' % (spaces,)
                 )
-
-            lines.append('%s}' % (spaces,))
         elif length == 1:
-            # we could have multiple children
-            lines.append(
-                '%sif needle.len() == %s {' % (spaces, length),
-            )
-
             if length == 1:
                 lines.append(
                     '%s    let needle = unsafe { *needle.get_unchecked(0) };' % (spaces,)
@@ -258,7 +298,6 @@ class TrieNode(object):
 
             lines.extend([
                 '%s        _ => { }' % (spaces,),
-                '%s    }' % (spaces,),
                 '%s}' % (spaces,),
             ])
         else:
@@ -269,7 +308,7 @@ class TrieNode(object):
 
             # we could have multiple children
             lines.append(
-                '%sif needle == b"%s" { return %s; }' % (spaces, key, child.value)
+                '%sif unsafe { eq_slice_unchecked(needle, b"%s") } { return %s; }' % (spaces, key, child.value)
             )
 
         return '\n'.join(lines)
@@ -311,6 +350,9 @@ def generate_trie(haystack, hay_map):
         trie.insert(hay, hay_map[hay])
 
     trie.compress()
+
+    #trie.print_trie()
+    #return
 
     print textwrap.dedent("""
     #[inline]
