@@ -1,34 +1,38 @@
 import textwrap
 import pprint
+import sys
 
-haystack = ['prefix' + c for c in [
+prefix = sys.argv[1]
+count = int(sys.argv[2])
+
+haystack = [prefix + c for c in [
     'a',
     'b',
     'c',
     'd',
     'e',
-#    'f',
-#    'g',
-#    'h',
-#    'i',
-#    'j',
-#    'k',
-#    'l',
-#    'm',
-#    'n',
-#    'o',
-#    'p',
-#    'q',
-#    'r',
-#    's',
-#    't',
-#    'u',
-#    'v',
-#    'w',
-#    'x',
-#    'y',
-#    'z',
-]]
+    'f',
+    'g',
+    'h',
+    'i',
+    'j',
+    'k',
+    'l',
+    'm',
+    'n',
+    'o',
+    'p',
+    'q',
+    'r',
+    's',
+    't',
+    'u',
+    'v',
+    'w',
+    'x',
+    'y',
+    'z',
+]][:count]
 
 print """\
 use std::cmp::Ordering;
