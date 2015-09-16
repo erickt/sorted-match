@@ -5,18 +5,24 @@ import sys
 import textwrap
 
 def generate_header(haystack, hay_map):
-    missing = haystack[-1]
-    while missing in hay_map:
-        missing += 'Z'
+    missing_first = haystack[0]
+    while missing_first in hay_map:
+        missing_first = '_' + missing_first
+
+    missing_last = haystack[-1]
+    while missing_last in hay_map:
+        missing_last = missing_last + '~'
 
     print textwrap.dedent("""
     use std::cmp::Ordering;
 
     pub static HAYSTACK: &'static [(&'static str, usize)] = &[%s];
-    pub static MISSING: &'static str = "%s";
+    pub static MISSING_FIRST: &'static str = "%s";
+    pub static MISSING_LAST: &'static str = "%s";
     """ % (
         ','.join('("%s", %s)' % (hay, hay_map[hay]) for hay in haystack),
-        missing,
+        missing_first,
+        missing_last,
     ))
 
 # ------------------------------------------------------------------------------

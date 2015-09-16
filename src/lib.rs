@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 
-fn haystack() -> (Vec<String>, HashMap<String, usize>) {
+fn haystack() -> (Vec<String>, HashMap<String, usize>, usize) {
     use std::io::Read;
 
     let tokens: Vec<_> = match env::var("HAYSTACK") {
@@ -27,246 +27,146 @@ fn haystack() -> (Vec<String>, HashMap<String, usize>) {
         }
     };
 
+    let len = tokens.iter().fold(0, |sum, s| sum + s.len());
+
     let mut words = HashMap::new();
 
     for token in tokens.iter() {
         words.insert(token.clone(), search::match_search(&token));
     }
 
-    (tokens, words)
+    (tokens, words, len)
 }
 
-fn bench_search_average<F>(haystack: &[String], words: &HashMap<String, usize>, f: F)
+fn bench_search_average<F>(b: &mut test::Bencher, f: F)
     where F: Fn(&str) -> usize,
 {
-    for hay in haystack.iter() {
-        let value = *words.get(&**hay).unwrap();
-        assert_eq!(value, (f)(hay));
-    }
+    let (haystack, words, len) = haystack();
+    b.bytes = len as u64;
+    b.iter(|| {
+        for hay in haystack.iter() {
+            let value = *words.get(&**hay).unwrap();
+            assert_eq!(value, (f)(hay));
+        }
 
-    assert_eq!(
-        search::HAYSTACK.len(),
-        (f)(search::MISSING));
+        assert_eq!(
+            search::HAYSTACK.len(),
+            (f)(search::MISSING_FIRST));
+
+        assert_eq!(
+            search::HAYSTACK.len(),
+            (f)(search::MISSING_LAST));
+    })
 }
 
-fn bench_search_one<F>(haystack: &[String], needle: &str, index: usize, f: F)
+fn bench_search_one<F>(b: &mut test::Bencher, needle: &str, index: usize, f: F)
     where F: Fn(&str) -> usize,
 {
-    for _ in haystack.iter() {
-        assert_eq!(index, (f)(needle));
-    }
+    let (haystack, _, len) = haystack();
+    b.bytes = len as u64;
+    b.iter(|| {
+        for _ in haystack.iter() {
+            assert_eq!(index, (f)(needle));
+        }
+    })
 }
 
-fn bench_search_first<F>(haystack: &[String], f: F)
+fn bench_search_first<F>(b: &mut test::Bencher, f: F)
     where F: Fn(&str) -> usize,
 {
     let &(word, index) = search::HAYSTACK.first().unwrap();
     bench_search_one(
-        haystack,
+        b,
         word,
         index,
         f)
 }
 
-fn bench_search_middle<F>(haystack: &[String], f: F)
+fn bench_search_middle<F>(b: &mut test::Bencher, f: F)
     where F: Fn(&str) -> usize,
 {
     let index = search::HAYSTACK.len() / 2;
     let &(word, index) = search::HAYSTACK.get(index).unwrap();
     bench_search_one(
-        haystack,
+        b,
         word,
         index,
         f)
 }
 
-fn bench_search_last<F>(haystack: &[String], f: F)
+fn bench_search_last<F>(b: &mut test::Bencher, f: F)
     where F: Fn(&str) -> usize,
 {
     let &(word, index) = search::HAYSTACK.last().unwrap();
     bench_search_one(
-        haystack,
+        b,
         word,
         index,
         f)
 }
 
-fn bench_search_missing<F>(haystack: &[String], f: F)
+fn bench_search_missing_first<F>(b: &mut test::Bencher, f: F)
     where F: Fn(&str) -> usize,
 {
     bench_search_one(
-        haystack,
-        search::MISSING,
+        b,
+        search::MISSING_FIRST,
+        search::HAYSTACK.len(),
+        f)
+}
+
+fn bench_search_missing_last<F>(b: &mut test::Bencher, f: F)
+    where F: Fn(&str) -> usize,
+{
+    bench_search_one(
+        b,
+        search::MISSING_LAST,
         search::HAYSTACK.len(),
         f)
 }
 
 //////////////////////////////////////////////////////////////////////////////
 
-#[bench]
-fn bench_match_average(b: &mut test::Bencher) {
-    let (haystack, words) = haystack();
-    b.iter(|| {
-        bench_search_average(&haystack, &words, search::match_search)
-    })
+macro_rules! benchmarks {
+    ($($name:ident | $method:ident => $function:expr,)*) => {
+        $(
+            #[bench]
+            fn $name(b: &mut test::Bencher) {
+                $method(b, $function)
+            }
+
+        )*
+    }
 }
 
-#[bench]
-fn bench_match_first(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_first(&haystack, search::match_search)
-    })
-}
+benchmarks! {
+    bench_average_match | bench_search_average => search::match_search,
+    bench_first_match | bench_search_first => search::match_search,
+    bench_middle_match | bench_search_middle => search::match_search,
+    bench_last_match | bench_search_last => search::match_search,
+    bench_missing_first_match | bench_search_missing_first => search::match_search,
+    bench_missing_last_match | bench_search_missing_last => search::match_search,
 
-#[bench]
-fn bench_match_middle(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_middle(&haystack, search::match_search)
-    })
-}
+    bench_average_linear | bench_search_average => search::linear_search,
+    bench_first_linear | bench_search_first => search::linear_search,
+    bench_middle_linear | bench_search_middle => search::linear_search,
+    bench_last_linear | bench_search_last => search::linear_search,
+    bench_missing_first_linear | bench_search_missing_first => search::linear_search,
+    bench_missing_last_linear | bench_search_missing_last => search::linear_search,
 
-#[bench]
-fn bench_match_last(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_last(&haystack, search::match_search)
-    })
-}
+    bench_average_binary | bench_search_average => search::binary_search,
+    bench_first_binary | bench_search_first => search::binary_search,
+    bench_middle_binary | bench_search_middle => search::binary_search,
+    bench_last_binary | bench_search_last => search::binary_search,
+    bench_missing_first_binary | bench_search_missing_first => search::binary_search,
+    bench_missing_last_binary | bench_search_missing_last => search::binary_search,
 
-#[bench]
-fn bench_match_missing(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_missing(&haystack, search::match_search)
-    })
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-#[bench]
-fn bench_linear_average(b: &mut test::Bencher) {
-    let (haystack, words) = haystack();
-    b.iter(|| {
-        bench_search_average(&haystack, &words, search::linear_search)
-    })
-}
-
-#[bench]
-fn bench_linear_first(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_first(&haystack, search::linear_search)
-    })
-}
-
-#[bench]
-fn bench_linear_middle(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_middle(&haystack, search::linear_search)
-    })
-}
-
-#[bench]
-fn bench_linear_last(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_last(&haystack, search::linear_search)
-    })
-}
-
-#[bench]
-fn bench_linear_missing(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_missing(&haystack, search::linear_search)
-    })
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-#[bench]
-fn bench_binary_average(b: &mut test::Bencher) {
-    let (haystack, words) = haystack();
-    b.iter(|| {
-        bench_search_average(&haystack, &words, search::binary_search)
-    })
-}
-
-#[bench]
-fn bench_binary_first(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_first(&haystack, search::binary_search)
-    })
-}
-
-#[bench]
-fn bench_binary_middle(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_middle(&haystack, search::binary_search)
-    })
-}
-
-#[bench]
-fn bench_binary_last(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_last(&haystack, search::binary_search)
-    })
-}
-
-#[bench]
-fn bench_binary_missing(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_missing(&haystack, search::binary_search)
-    })
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-#[bench]
-fn bench_trie_average(b: &mut test::Bencher) {
-    let (haystack, words) = haystack();
-    b.iter(|| {
-        bench_search_average(&haystack, &words, search::trie_search)
-    })
-}
-
-#[bench]
-fn bench_trie_first(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_first(&haystack, search::trie_search)
-    })
-}
-
-#[bench]
-fn bench_trie_middle(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_middle(&haystack, search::trie_search)
-    })
-}
-
-#[bench]
-fn bench_trie_last(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_last(&haystack, search::trie_search)
-    })
-}
-
-#[bench]
-fn bench_trie_missing(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
-    b.iter(|| {
-        bench_search_missing(&haystack, search::trie_search)
-    })
+    bench_average_trie | bench_search_average => search::trie_search,
+    bench_first_trie | bench_search_first => search::trie_search,
+    bench_middle_trie | bench_search_middle => search::trie_search,
+    bench_last_trie | bench_search_last => search::trie_search,
+    bench_missing_first_trie | bench_search_missing_first => search::trie_search,
+    bench_missing_last_trie | bench_search_missing_last => search::trie_search,
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -284,46 +184,37 @@ fn hashmap() -> HashMap<String, usize> {
 }
 
 #[bench]
-fn bench_hashmap_average(b: &mut test::Bencher) {
-    let (haystack, words) = haystack();
+fn bench_average_hashmap(b: &mut test::Bencher) {
     let map = hashmap();
-    b.iter(|| {
-        bench_search_average(&haystack, &words, |n| hashmap_search(&map, n))
-    })
+    bench_search_average(b, |n| hashmap_search(&map, n))
 }
 
 #[bench]
-fn bench_hashmap_first(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
+fn bench_first_hashmap(b: &mut test::Bencher) {
     let map = hashmap();
-    b.iter(|| {
-        bench_search_first(&haystack, |n| hashmap_search(&map, n))
-    })
+    bench_search_first(b, |n| hashmap_search(&map, n))
 }
 
 #[bench]
-fn bench_hashmap_middle(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
+fn bench_middle_hashmap(b: &mut test::Bencher) {
     let map = hashmap();
-    b.iter(|| {
-        bench_search_middle(&haystack, |n| hashmap_search(&map, n))
-    })
+    bench_search_middle(b, |n| hashmap_search(&map, n))
 }
 
 #[bench]
-fn bench_hashmap_last(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
+fn bench_last_hashmap(b: &mut test::Bencher) {
     let map = hashmap();
-    b.iter(|| {
-        bench_search_last(&haystack, |n| hashmap_search(&map, n))
-    })
+    bench_search_last(b, |n| hashmap_search(&map, n))
 }
 
 #[bench]
-fn bench_hashmap_missing(b: &mut test::Bencher) {
-    let (haystack, _) = haystack();
+fn bench_missing_first_hashmap(b: &mut test::Bencher) {
     let map = hashmap();
-    b.iter(|| {
-        bench_search_missing(&haystack, |n| hashmap_search(&map, n))
-    })
+    bench_search_missing_first(b, |n| hashmap_search(&map, n))
+}
+
+#[bench]
+fn bench_missing_last_hashmap(b: &mut test::Bencher) {
+    let map = hashmap();
+    bench_search_missing_last(b, |n| hashmap_search(&map, n))
 }
