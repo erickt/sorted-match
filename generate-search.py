@@ -44,12 +44,21 @@ def generate_header(haystack, hay_map):
     #[allow(dead_code)]
     #[inline]
     unsafe fn eq_slice_unchecked(a: &[u8], b: &[u8]) -> bool {
-        cmp_slice(a, b, a.len()) == 0
+        memcmp(a, b, a.len()) == 0
     }
 
     #[allow(dead_code)]
     #[inline]
-    unsafe fn cmp_slice(a: &[u8], b: &[u8], len: usize) -> i32 {
+    unsafe fn cmp_slice_unchecked(a: &[u8], b: &[u8]) -> Ordering {
+        let cmp = memcmp(a, b, a.len());
+        if cmp == 0 { Ordering::Equal }
+        else if cmp < 0 { Ordering::Less }
+        else { Ordering::Greater }
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    unsafe fn memcmp(a: &[u8], b: &[u8], len: usize) -> i32 {
         // NOTE: In theory n should be libc::size_t and not usize, but libc is not available here
         #[allow(improper_ctypes)]
         extern { fn memcmp(s1: *const i8, s2: *const i8, n: usize) -> i32; }
@@ -96,20 +105,61 @@ def generate_linear(haystack, hay_map):
 
 # ------------------------------------------------------------------------------
 
-def walk_binary(haystack, hay_map, fn, start, end, indent=0):
+def group_by_len(haystack):
+    d = {}
+    for hay in haystack:
+        try:
+            hays = d[len(hay)]
+        except KeyError:
+            hays = d[len(hay)] = []
+
+        hays.append(hay)
+
+    return sorted(d.iteritems(), lambda a, b: cmp(a[0], b[0]))
+
+def generate_linear_len(haystack, hay_map):
+    print textwrap.dedent("""
+    #[inline]
+    pub fn linear_len_search(needle: &str) -> usize {
+        let needle = needle.as_bytes();
+
+        match needle.len() {""")
+
+
+    for length, hays in group_by_len(haystack):
+        print '        %s => {' % length
+
+        first = True
+        for hay in hays:
+            if first:
+                first = False
+                print '            if unsafe { eq_slice_unchecked(needle, b"%s") } { return %s; }' % (hay, hay_map[hay])
+            else:
+                print '            else if unsafe { eq_slice_unchecked(needle, b"%s") } { return %s; }' % (hay, hay_map[hay])
+
+        print '        }'
+
+    print '        _ => { }'
+    print '    }'
+    print '    %s' % len(haystack)
+    print '}'
+
+# ------------------------------------------------------------------------------
+
+def walk_binary(haystack, hay_map, fn, start, end, indent=0, use_bytes=False, use_ord=True):
     if start == end:
         return ""
 
     index = (end + start) // 2
     spaces = ' ' * indent
 
-    less = walk_binary(haystack, hay_map, fn, start, index, indent=indent + 8)
+    less = walk_binary(haystack, hay_map, fn, start, index, indent=indent + 8, use_bytes=use_bytes, use_ord=use_ord)
     if less:
         less = '{\n%s\n%s}' % (less, spaces + ' ' * 4)
     else:
         less = '{ }'
 
-    greater = walk_binary(haystack, hay_map, fn, index + 1, end, indent=indent + 8)
+    greater = walk_binary(haystack, hay_map, fn, index + 1, end, indent=indent + 8, use_bytes=use_bytes, use_ord=use_ord)
     if greater:
         greater = '{\n%s\n%s}' % (greater, spaces + ' ' * 4)
     else:
@@ -117,13 +167,27 @@ def walk_binary(haystack, hay_map, fn, start, end, indent=0):
 
     hay = haystack[index]
 
-    lines = [
-        'match %s(needle, "%s") {' % (fn, hay),
-        '    Ordering::Less => %s' % less,
-        '    Ordering::Equal => { return %s; }' % hay_map[hay],
-        '    Ordering::Greater => %s' % greater,
-        '}',
-    ]
+    if use_bytes:
+      h = 'b"%s"' % hay
+    else:
+      h = '"%s"' % hay
+
+    if use_ord:
+      lines = [
+          'match %s(needle, %s) {' % (fn, h),
+          '    Ordering::Less => %s' % less,
+          '    Ordering::Equal => { return %s; }' % hay_map[hay],
+          '    Ordering::Greater => %s' % greater,
+          '}',
+      ]
+    else:
+      lines = [
+          'let cmp = memcmp(needle, %s, %s);' % (h, len(hay)),
+          'if cmp < 0 %s' % less,
+          'else if cmp == 0 { return %s; }' % hay_map[hay],
+          'else %s' % greater,
+      ]
+
 
     return '\n'.join('%s%s' % (spaces, line) for line in lines)
 
@@ -134,6 +198,27 @@ def generate_binary(haystack, hay_map):
     #[inline]
     pub fn binary_search(needle: &str) -> usize {""")
     print walk_binary(haystack, hay_map, 'str::cmp', 0, len(haystack), 4)
+    print '    %s' % len(haystack)
+    print '}'
+
+def generate_binary_len(haystack, hay_map):
+    print textwrap.dedent("""
+    #[inline]
+    pub fn binary_len_search(needle: &str) -> usize {
+        let needle = needle.as_bytes();
+        unsafe {
+            match needle.len() {""")
+
+    for length, hays in group_by_len(haystack):
+        hays.sort()
+
+        print '            %s => {' % length
+        print walk_binary(hays, hay_map, 'cmp_slice_unchecked', 0, len(hays), 16, use_bytes=True, use_ord=False)
+        print '            }'
+
+    print '        _ => { }'
+    print '        }'
+    print '    }'
     print '    %s' % len(haystack)
     print '}'
 
@@ -425,7 +510,9 @@ def main():
     generate_header(haystack, hay_map)
     generate_match(haystack, hay_map)
     generate_linear(haystack, hay_map)
+    generate_linear_len(haystack, hay_map)
     generate_binary(haystack, hay_map)
+    generate_binary_len(haystack, hay_map)
     generate_trie(haystack, hay_map)
 
 if __name__ == '__main__':

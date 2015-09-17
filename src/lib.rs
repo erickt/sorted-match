@@ -158,12 +158,26 @@ benchmarks! {
     bench_missing_first_linear | bench_search_missing_first => search::linear_search,
     bench_missing_last_linear | bench_search_missing_last => search::linear_search,
 
+    bench_average_linear_len | bench_search_average => search::linear_len_search,
+    bench_first_linear_len | bench_search_first => search::linear_len_search,
+    bench_middle_linear_len | bench_search_middle => search::linear_len_search,
+    bench_last_linear_len | bench_search_last => search::linear_len_search,
+    bench_missing_first_linear_len | bench_search_missing_first => search::linear_len_search,
+    bench_missing_last_linear_len | bench_search_missing_last => search::linear_len_search,
+
     bench_average_binary | bench_search_average => search::binary_search,
     bench_first_binary | bench_search_first => search::binary_search,
     bench_middle_binary | bench_search_middle => search::binary_search,
     bench_last_binary | bench_search_last => search::binary_search,
     bench_missing_first_binary | bench_search_missing_first => search::binary_search,
     bench_missing_last_binary | bench_search_missing_last => search::binary_search,
+
+    bench_average_binary_len | bench_search_average => search::binary_len_search,
+    bench_first_binary_len | bench_search_first => search::binary_len_search,
+    bench_middle_binary_len | bench_search_middle => search::binary_len_search,
+    bench_last_binary_len | bench_search_last => search::binary_len_search,
+    bench_missing_first_binary_len | bench_search_missing_first => search::binary_len_search,
+    bench_missing_last_binary_len | bench_search_missing_last => search::binary_len_search,
 
     bench_average_trie | bench_search_average => search::trie_search,
     bench_first_trie | bench_search_first => search::trie_search,
